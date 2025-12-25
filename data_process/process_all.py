@@ -107,6 +107,15 @@ def infer_labels(data: torch.Tensor, label_col: Optional[int]) -> torch.Tensor:
     return data[:, label_col].to(torch.double)
 
 
+def binarize_labels(labels: torch.Tensor) -> torch.Tensor:
+    """Ensure labels fall in [0, 1] for BCE loss downstream."""
+
+    if torch.all((0.0 <= labels) & (labels <= 1.0)):
+        return labels.to(torch.double)
+
+    return (labels > 0).to(torch.double)
+
+
 def build_time_buckets(
     data: torch.Tensor, ts: int, time_dim: int, label_col: Optional[int]
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -135,7 +144,7 @@ def build_time_buckets(
         tensor_idx[idx, 1:3] = data[idx, 0:2].to(torch.long)
         tensor_idx[idx, 0] = t
 
-        labels = infer_labels(data[idx], label_col)
+        labels = binarize_labels(infer_labels(data[idx], label_col))
         tensor_labels[idx] = labels
 
     return tensor_idx, tensor_labels
