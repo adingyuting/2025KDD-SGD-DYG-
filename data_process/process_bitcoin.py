@@ -1,27 +1,23 @@
 import math  # 标准库：数学工具（这里用于 floor 等）
 
-from constant import VAL_RATE, TEST_RATE, BITCOIN_OTC_TS, BITCOIN_ALPHA_TS  # 导入常量：验证/测试比例、时间片数等
+from constant import (  # 导入常量：验证/测试比例、时间片数等
+    BITCOIN_ALPHA_TS,
+    BITCOIN_OTC_TS,
+    DBLP_TS,
+    DIGG_TS,
+    LAST_FM_TS,
+    PPIN_TS,
+    TEST_RATE,
+    VAL_RATE,
+    WIKI_EO_TS,
+    WIKI_GL_TS,
+)
 from process import *  # 导入数据处理工具函数（如 split_data / func_make_symmetric / func_edge_life / func_laplacian_transformation / save_file）
 
 # =========================
 # 参数设置区
 # =========================
-dataset = 'bitcoin_alpha'  # 数据集选择器：'bitcoin_alpha' 或 'bitcoin_otc'
-print(dataset)  # 打印当前选择的数据集名称
-
 DATA_DIR_PATH = os.path.join(os.path.dirname(__file__), '../data')  # 数据根目录：当前脚本目录/../data
-
-# =========================
-# bitcoin alpha 数据集路径设置
-# =========================
-ALPHA_PATH = os.path.join(DATA_DIR_PATH, 'bitcoin_alpha')  # alpha 数据目录
-ALPHA_NAME = 'bitcoin_alpha.mat'  # alpha 输出的 mat 文件名
-
-# =========================
-# bitcoin otc 数据集路径设置
-# =========================
-OTC_PATH = os.path.join(DATA_DIR_PATH, 'bitcoin_otc')  # otc 数据目录
-OTC_NAME = 'bitcoin_otc.mat'  # otc 输出的 mat 文件名
 TIME_DIM = 3  # CSV 中时间戳所在列的索引（从0开始）：第4列为时间戳
 
 # =========================
@@ -31,29 +27,78 @@ EDGE_LIFE = False  # 是否启用“边生命周期”机制：把历史窗口�
 EDGE_LIFE_WINDOW = 10  # 边生命周期窗口长度（单位：时间片）
 MAKE_SYMMETRIC = False  # 是否对每个时间片的邻接矩阵做对称化（A := A + A^T）
 
+DATASET_CONFIGS = [
+    # bitcoin
+    {
+        'name': 'bitcoin_alpha',
+        'csv_path': os.path.join(DATA_DIR_PATH, 'bitcoin_alpha', 'soc-sign-bitcoinalpha.csv'),
+        'save_dir': os.path.join(DATA_DIR_PATH, 'bitcoin_alpha'),
+        'save_name': 'bitcoin_alpha.mat',
+        'ts': BITCOIN_ALPHA_TS,
+    },
+    {
+        'name': 'bitcoin_otc',
+        'csv_path': os.path.join(DATA_DIR_PATH, 'bitcoin_otc', 'soc-sign-bitcoinotc.csv'),
+        'save_dir': os.path.join(DATA_DIR_PATH, 'bitcoin_otc'),
+        'save_name': 'bitcoin_otc.mat',
+        'ts': BITCOIN_OTC_TS,
+    },
+    # non-bitcoin datasets一次性处理
+    {
+        'name': 'wiki_gl',
+        'csv_path': os.path.join(DATA_DIR_PATH, 'wiki_gl', 'wiki_gl.csv'),
+        'save_dir': os.path.join(DATA_DIR_PATH, 'wiki_gl'),
+        'save_name': 'wiki_gl.mat',
+        'ts': WIKI_GL_TS,
+    },
+    {
+        'name': 'wiki_eo',
+        'csv_path': os.path.join(DATA_DIR_PATH, 'wiki_eo', 'wiki_eo.csv'),
+        'save_dir': os.path.join(DATA_DIR_PATH, 'wiki_eo'),
+        'save_name': 'wiki_eo.mat',
+        'ts': WIKI_EO_TS,
+    },
+    {
+        'name': 'digg',
+        'csv_path': os.path.join(DATA_DIR_PATH, 'digg', 'digg.csv'),
+        'save_dir': os.path.join(DATA_DIR_PATH, 'digg'),
+        'save_name': 'digg.mat',
+        'ts': DIGG_TS,
+    },
+    {
+        'name': 'last_fm',
+        'csv_path': os.path.join(DATA_DIR_PATH, 'last_fm', 'last_fm.csv'),
+        'save_dir': os.path.join(DATA_DIR_PATH, 'last_fm'),
+        'save_name': 'last_fm.mat',
+        'ts': LAST_FM_TS,
+    },
+    {
+        'name': 'dblp',
+        'csv_path': os.path.join(DATA_DIR_PATH, 'dblp', 'dblp.csv'),
+        'save_dir': os.path.join(DATA_DIR_PATH, 'dblp'),
+        'save_name': 'dblp.mat',
+        'ts': DBLP_TS,
+    },
+    {
+        'name': 'ppin',
+        'csv_path': os.path.join(DATA_DIR_PATH, 'ppin', 'ppin.csv'),
+        'save_dir': os.path.join(DATA_DIR_PATH, 'ppin'),
+        'save_name': 'ppin.mat',
+        'ts': PPIN_TS,
+    },
+]
 
-def preprocess_data():  # 主预处理流程：读取CSV→按时间离散→构造稀疏张量→切分→归一化→保存
+
+def preprocess_data(dataset_cfg):  # 主预处理流程：读取CSV→按时间离散→构造稀疏张量→切分→归一化→保存
     # -------------------------
     # 1) 根据 dataset 选择数据源与输出文件名
     # -------------------------
-    if dataset == 'bitcoin_alpha':  # 如果选择 alpha 数据集
-        data = np.loadtxt(
-            os.path.join(ALPHA_PATH, 'soc-sign-bitcoinalpha.csv'),
-            delimiter=','
-        )  # 读取 alpha 的 CSV（每行一般是 src, dst, label, time）
-        save_file_location = ALPHA_PATH  # 输出目录：alpha 目录
-        save_file_name = ALPHA_NAME  # 输出文件名：bitcoin_alpha.mat
-        TS = BITCOIN_ALPHA_TS  # 时间片数量（预定义常量），这个是从baseline中获得的
-    elif dataset == 'bitcoin_otc':  # 如果选择 otc 数据集
-        data = np.loadtxt(
-            os.path.join(OTC_PATH, 'soc-sign-bitcoinotc.csv'),
-            delimiter=','
-        )  # 读取 otc 的 CSV
-        save_file_location = OTC_PATH  # 输出目录：otc 目录
-        save_file_name = OTC_NAME  # 输出文件名：bitcoin_otc.mat
-        TS = BITCOIN_OTC_TS  # 时间片数量（预定义常量）
-    else:  # 其他字符串都视为非法
-        raise Exception('Invalid dataset')  # 直接报错终止
+    dataset = dataset_cfg['name']
+    print(dataset)  # 打印当前选择的数据集名称
+    data = np.loadtxt(dataset_cfg['csv_path'], delimiter=',')  # 读取 CSV
+    save_file_location = dataset_cfg['save_dir']  # 输出目录
+    save_file_name = dataset_cfg['save_name']  # 输出文件名
+    TS = dataset_cfg['ts']  # 时间片数量
 
     # -------------------------
     # 2) 计算时间离散化参数：最小/最大时间戳、每个时间片宽度
@@ -197,4 +242,6 @@ def preprocess_data():  # 主预处理流程：读取CSV→按时间离散→构
     )  # 执行保存
 
 
-preprocess_data()  # 运行预处理（脚本入口）
+if __name__ == "__main__":
+    for cfg in DATASET_CONFIGS:
+        preprocess_data(cfg)  # 逐个数据集运行预处理（脚本入口）
