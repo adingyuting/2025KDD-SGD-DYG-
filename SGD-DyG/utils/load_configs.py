@@ -61,6 +61,22 @@ def get_link_prediction_args():
                         help='sharpness regularization weight for selector logits')
     args = parser.parse_args()
 
-    args.hidden_features = [args.hidden_feature for _ in range(args.layer)]
+    hidden_features = getattr(args, "hidden_features", None)
+    if hidden_features is None:
+        hidden_features = [args.hidden_feature for _ in range(args.layer)]
+    elif isinstance(hidden_features, int):
+        hidden_features = [hidden_features for _ in range(args.layer)]
+    elif isinstance(hidden_features, (list, tuple)):
+        flattened = []
+        for item in hidden_features:
+            if isinstance(item, (list, tuple)):
+                flattened.extend(item)
+            else:
+                flattened.append(item)
+        hidden_features = flattened
+    else:
+        hidden_features = [hidden_features for _ in range(args.layer)]
+
+    args.hidden_features = [int(value) for value in hidden_features]
 
     return args
