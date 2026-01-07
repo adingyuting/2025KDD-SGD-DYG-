@@ -113,7 +113,8 @@ def split_data(labels, TS):
 
 
 def get_results_sava_path(lr, lam, num_feature, m_choice, fft=True, enable_cl=True, tensor_con=True):
-    save_path = f'./results/lr_{lr}_lam_{lam}_num_features_{num_feature}_M_{m_choice}'
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    save_path = os.path.join(base_dir, 'results', f'lr_{lr}_lam_{lam}_num_features_{num_feature}_M_{m_choice}')
     if fft:
         save_path += '_fft'
     if enable_cl:
@@ -146,8 +147,9 @@ def get_save_parameter(lr, lam, num_feature, run, tau, args):
     layers = len(args.hidden_features)
     save_res_fname = f'{save_path}/{args.model_name}_layers_{layers}_{args.dataset_name}_tau_{tau}_run_{run}'
 
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     args.save_model_name = f'{args.model_name}_seed_{args.seed + run}'
-    save_model_folder = f"./saved_models/{args.model_name}/{args.dataset_name}/{args.save_model_name}/"
+    save_model_folder = os.path.join(base_dir, "saved_models", args.model_name, args.dataset_name, args.save_model_name)
     shutil.rmtree(save_model_folder, ignore_errors=True)
     os.makedirs(save_model_folder, exist_ok=True)
 
