@@ -1,11 +1,12 @@
+import os
 import random
 
 import numpy as np
 import scipy.io as sio
 import torch
 
-from ..constant import *
-import util
+from constant import *
+from utils import util
 
 
 def func_get_floatTensor(saved_content, tensor_name, size, device):

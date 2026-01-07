@@ -1,3 +1,5 @@
+from typing import Iterable, List, Tuple
+
 import torch
 import torch.nn as nn
 
@@ -67,3 +69,57 @@ class SGDDyG(nn.Module):
 
     def init_weight(self):
         nn.init.xavier_normal_(self.X)
+
+
+class ScaleSelector(nn.Module):
+    def __init__(self, embed_dim: int, hidden_dim: int, num_scales: int = 3):
+        super().__init__()
+        self.selector = nn.Sequential(
+            nn.Linear(4 * embed_dim + 4, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, num_scales)
+        )
+
+    def forward(self, embeddings: torch.Tensor, edges_nodes: Tuple[torch.Tensor, torch.Tensor],
+                observability_stats: torch.Tensor) -> torch.Tensor:
+        edge_src_nodes, edge_trg_nodes = edges_nodes
+        flattened_embeddings = embeddings.reshape(-1, embeddings.shape[-1])
+        src_nodes_features = flattened_embeddings[edge_src_nodes]
+        trg_nodes_features = flattened_embeddings[edge_trg_nodes]
+
+        pair_embedding = torch.cat(
+            (
+                src_nodes_features,
+                trg_nodes_features,
+                src_nodes_features * trg_nodes_features,
+                torch.abs(src_nodes_features - trg_nodes_features),
+            ),
+            dim=1
+        )
+        context = torch.cat((pair_embedding, observability_stats), dim=1)
+        logits = self.selector(context)
+        return torch.softmax(logits, dim=1)
+
+
+class MultiScaleSGDDyG(nn.Module):
+    def __init__(self, encoder: SGDDyG, selector_hidden: int, num_scales: int = 3):
+        super().__init__()
+        self.encoder = encoder
+        self.num_scales = num_scales
+        self.scale_selector = ScaleSelector(embed_dim=self.encoder.F[-1], hidden_dim=selector_hidden,
+                                            num_scales=num_scales)
+
+    def forward(self, multi_scale_adj: Iterable[List[torch.Tensor]], edges_nodes, M, observability_stats, cl=True):
+        scale_outputs = []
+        short_embeddings = None
+        for adj in multi_scale_adj:
+            output, embeddings = self.encoder(adj, edges_nodes, M, cl)
+            scale_outputs.append(output)
+            if short_embeddings is None:
+                short_embeddings = embeddings
+        scale_outputs = torch.stack(scale_outputs, dim=1)
+
+        alpha = self.scale_selector(short_embeddings, edges_nodes, observability_stats)
+        combined_output = torch.sum(alpha * scale_outputs, dim=1)
+
+        return combined_output, short_embeddings, alpha

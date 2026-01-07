@@ -1,3 +1,4 @@
+import os
 import random
 import shutil
 
@@ -5,7 +6,7 @@ import numpy as np
 import torch
 from sklearn.metrics import average_precision_score, roc_auc_score
 
-from ..constant import *
+from constant import *
 
 
 def get_all_edges_nodes(train_edges, val_edges, test_edges, num_nodes):

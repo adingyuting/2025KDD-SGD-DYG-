@@ -1,6 +1,6 @@
 import argparse
 
-from baselines.evolvegcn.constant import *
+from constant import *
 
 
 def get_link_prediction_args():
@@ -49,6 +49,18 @@ def get_link_prediction_args():
                         help='enable contrastive learning')
     parser.add_argument("--tensor_con", type=bool, default=True,
                         help='enable tensor graph convolution')
+    parser.add_argument("--multi_scale", type=bool, default=True,
+                        help='enable multi-scale aggregation and selector')
+    parser.add_argument("--decay_lambda", type=float, default=0.8,
+                        help='decay factor for mid-scale aggregation')
+    parser.add_argument("--persistence_threshold", type=int, default=2,
+                        help='persistence threshold for long-scale aggregation')
+    parser.add_argument("--selector_hidden_dim", type=int, default=64,
+                        help='hidden dimension for scale selector MLP')
+    parser.add_argument("--sharpness_coeff", type=float, default=1e-3,
+                        help='sharpness regularization weight for selector logits')
     args = parser.parse_args()
+
+    args.hidden_features = [args.hidden_feature for _ in range(args.layer)]
 
     return args
