@@ -30,6 +30,8 @@ def train(args, num_feature, lr, lam, tau):
         save_res_fname, save_model_folder = util.get_save_parameter(lr, lam, num_feature, run, tau, args)
         early_stopping = EarlyStopping(patience=args.patience, save_model_folder=save_model_folder, model_name=args.model_name)
 
+        args_summary = util.stringify_args(args)
+
         base_encoder = SGDDyG(T, N,
                               hidden_features=args.hidden_features,
                               num_feature=num_feature,
@@ -61,7 +63,7 @@ def train(args, num_feature, lr, lam, tau):
         criterion = Loss(base_encoder.X, lam, enable_cl, tau,
                          sharpness_coeff=args.sharpness_coeff if args.multi_scale else 0.0)
 
-        logs = []
+        logs = [f"Args: {args_summary}"]
         for ep in range(1, args.epochs + 1):
             optimizer.zero_grad()
 

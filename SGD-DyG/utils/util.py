@@ -139,6 +139,14 @@ def log_metric(state, epoch, metrics, loss):
     return log
 
 
+def stringify_args(args) -> str:
+    args_dict = vars(args)
+    parts = []
+    for key in sorted(args_dict.keys()):
+        parts.append(f"{key}={args_dict[key]}")
+    return ", ".join(parts)
+
+
 def get_save_parameter(lr, lam, num_feature, run, tau, args):
     save_path = get_results_sava_path(lr, lam, num_feature, args.m_choice, args.fft, args.enable_cl, args.tensor_con)
     if not os.path.exists(save_path):
