@@ -152,7 +152,10 @@ def get_save_parameter(lr, lam, num_feature, run, tau, args):
     if not os.path.exists(save_path):
         os.mkdir(save_path)
 
-    layers = len(args.hidden_features)
+    hidden_features = getattr(args, "hidden_features", None)
+    if hidden_features is None:
+        hidden_features = getattr(args, "hidden_feature", [])
+    layers = len(hidden_features) if isinstance(hidden_features, (list, tuple)) else int(getattr(args, "layer", 1))
     save_res_fname = f'{save_path}/{args.model_name}_layers_{layers}_{args.dataset_name}_tau_{tau}_run_{run}'
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
