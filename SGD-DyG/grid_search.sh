@@ -27,6 +27,7 @@ DECAY_LAMBDAS=(0.8)
 PERSIST_THRESHOLDS=(2)
 SELECTOR_HIDDEN_LIST=(64)
 SHARPNESS_LIST=(1e-3)
+PRIOR_BETA_LIST=(1.0)
 
 for NUM_FEATURE in "${NUM_FEATURES[@]}"; do
   for LAYER in "${LAYERS[@]}"; do
@@ -47,6 +48,7 @@ for NUM_FEATURE in "${NUM_FEATURES[@]}"; do
                                 for PERSIST_THRESHOLD in "${PERSIST_THRESHOLDS[@]}"; do
                                   for SELECTOR_HIDDEN in "${SELECTOR_HIDDEN_LIST[@]}"; do
                                     for SHARPNESS in "${SHARPNESS_LIST[@]}"; do
+                                      for PRIOR_BETA in "${PRIOR_BETA_LIST[@]}"; do
                                       python SGD-DyG/train.py \
                                         --dataset_name "$DATASET" \
                                         --num_runs "$RUNS" \
@@ -69,7 +71,9 @@ for NUM_FEATURE in "${NUM_FEATURES[@]}"; do
                                         --decay_lambda "$DECAY_LAMBDA" \
                                         --persistence_threshold "$PERSIST_THRESHOLD" \
                                         --selector_hidden_dim "$SELECTOR_HIDDEN" \
-                                        --sharpness_coeff "$SHARPNESS"
+                                        --sharpness_coeff "$SHARPNESS" \
+                                        --prior_beta "$PRIOR_BETA"
+                                      done
                                     done
                                   done
                                 done

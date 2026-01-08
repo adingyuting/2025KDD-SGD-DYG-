@@ -59,6 +59,8 @@ def get_link_prediction_args():
                         help='hidden dimension for scale selector MLP')
     parser.add_argument("--sharpness_coeff", type=float, default=1e-3,
                         help='sharpness regularization weight for selector logits')
+    parser.add_argument("--prior_beta", type=float, default=1.0,
+                        help='strength of timeslot prior in scale selector')
     args = parser.parse_args()
 
     hidden_features = getattr(args, "hidden_features", None)

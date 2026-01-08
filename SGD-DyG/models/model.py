@@ -97,19 +97,22 @@ class ScaleSelector(nn.Module):
             dim=1
         )
         context = torch.cat((pair_embedding, observability_stats), dim=1)
-        logits = self.selector(context)
-        return torch.softmax(logits, dim=1)
+        return self.selector(context)
 
 
 class MultiScaleSGDDyG(nn.Module):
-    def __init__(self, encoder: SGDDyG, selector_hidden: int, num_scales: int = 3):
+    def __init__(self, encoder: SGDDyG, selector_hidden: int, time_slices: int, num_scales: int = 3,
+                 prior_beta: float = 1.0):
         super().__init__()
         self.encoder = encoder
         self.num_scales = num_scales
+        self.prior_beta = prior_beta
         self.scale_selector = ScaleSelector(embed_dim=self.encoder.F[-1], hidden_dim=selector_hidden,
                                             num_scales=num_scales)
+        self.timeslot_prior = nn.Parameter(torch.zeros(time_slices, num_scales))
 
-    def forward(self, multi_scale_adj: Iterable[List[torch.Tensor]], edges_nodes, M, observability_stats, cl=True):
+    def forward(self, multi_scale_adj: Iterable[List[torch.Tensor]], edges_nodes, edge_times, M, observability_stats,
+                cl=True):
         scale_outputs = []
         short_embeddings = None
         for adj in multi_scale_adj:
@@ -119,7 +122,10 @@ class MultiScaleSGDDyG(nn.Module):
                 short_embeddings = embeddings
         scale_outputs = torch.stack(scale_outputs, dim=1)
 
-        alpha = self.scale_selector(short_embeddings, edges_nodes, observability_stats)
+        logits = self.scale_selector(short_embeddings, edges_nodes, observability_stats)
+        timeslot_prior = torch.softmax(self.timeslot_prior, dim=1)
+        edge_prior = timeslot_prior[edge_times]
+        alpha = torch.softmax(logits + self.prior_beta * torch.log(edge_prior + 1e-8), dim=1)
         combined_output = torch.sum(alpha * scale_outputs, dim=1)
 
         return combined_output, short_embeddings, alpha

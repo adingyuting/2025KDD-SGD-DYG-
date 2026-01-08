@@ -43,7 +43,8 @@ def train(args, num_feature, lr, lam, tau):
                               tensor_con=args.tensor_con)
 
         if args.multi_scale:
-            model = MultiScaleSGDDyG(base_encoder, selector_hidden=args.selector_hidden_dim, num_scales=3)
+            model = MultiScaleSGDDyG(base_encoder, selector_hidden=args.selector_hidden_dim, time_slices=T, num_scales=3,
+                                     prior_beta=args.prior_beta)
             train_views = build_multiscale_windows(train_adj, args.bandwidth, args.decay_lambda, args.persistence_threshold)
             val_views = build_multiscale_windows(val_adj, args.bandwidth, args.decay_lambda, args.persistence_threshold)
             test_views = build_multiscale_windows(test_adj, args.bandwidth, args.decay_lambda, args.persistence_threshold)
@@ -51,10 +52,14 @@ def train(args, num_feature, lr, lam, tau):
             train_stats = compute_observability_stats(edges_train, train_adj, args.bandwidth, N)
             val_stats = compute_observability_stats(edges_val, val_adj, args.bandwidth, N)
             test_stats = compute_observability_stats(edges_test, test_adj, args.bandwidth, N)
+            train_edge_times = edges_train[0]
+            val_edge_times = edges_val[0]
+            test_edge_times = edges_test[0]
         else:
             model = base_encoder
             train_views, val_views, test_views = train_adj, val_adj, test_adj
             train_stats = val_stats = test_stats = None
+            train_edge_times = val_edge_times = test_edge_times = None
 
         model = model.to(device=device)
 
@@ -70,8 +75,10 @@ def train(args, num_feature, lr, lam, tau):
             model.train()
             if enable_cl:
                 if args.multi_scale:
-                    output_train, h1, alpha_train = model(train_views, train_edge_nodes, M, train_stats, False)
-                    _, h2, _ = model(train_views, train_edge_nodes, M, train_stats, True)
+                    output_train, h1, alpha_train = model(
+                        train_views, train_edge_nodes, train_edge_times, M, train_stats, False
+                    )
+                    _, h2, _ = model(train_views, train_edge_nodes, train_edge_times, M, train_stats, True)
                     loss_train = criterion(output_train, target_train, h1, h2, alpha_train)
                 else:
                     output_train, h1 = model(train_views, train_edge_nodes, M, False)
@@ -79,7 +86,9 @@ def train(args, num_feature, lr, lam, tau):
                     loss_train = criterion(output_train, target_train, h1, h2)
             else:
                 if args.multi_scale:
-                    output_train, h1, alpha_train = model(train_views, train_edge_nodes, M, train_stats, False)
+                    output_train, h1, alpha_train = model(
+                        train_views, train_edge_nodes, train_edge_times, M, train_stats, False
+                    )
                     loss_train = criterion(output_train, target_train, h1, alpha=alpha_train)
                 else:
                     output_train, _ = model(train_views, train_edge_nodes, M, False)
@@ -94,8 +103,10 @@ def train(args, num_feature, lr, lam, tau):
 
                 if enable_cl:
                     if args.multi_scale:
-                        output_val, h1, alpha_val = model(val_views, val_edge_nodes, M, val_stats, False)
-                        _, h2, _ = model(val_views, val_edge_nodes, M, val_stats, True)
+                        output_val, h1, alpha_val = model(
+                            val_views, val_edge_nodes, val_edge_times, M, val_stats, False
+                        )
+                        _, h2, _ = model(val_views, val_edge_nodes, val_edge_times, M, val_stats, True)
                         loss_val = criterion(output_val[-K_val:], target_val[-K_val:], h1, h2, alpha_val[-K_val:])
                     else:
                         output_val, h1 = model(val_views, val_edge_nodes, M, False)
@@ -103,7 +114,9 @@ def train(args, num_feature, lr, lam, tau):
                         loss_val = criterion(output_val[-K_val:], target_val[-K_val:], h1, h2)
                 else:
                     if args.multi_scale:
-                        output_val, h1, alpha_val = model(val_views, val_edge_nodes, M, val_stats, False)
+                        output_val, h1, alpha_val = model(
+                            val_views, val_edge_nodes, val_edge_times, M, val_stats, False
+                        )
                         loss_val = criterion(output_val[-K_val:], target_val[-K_val:], h1, alpha=alpha_val[-K_val:])
                     else:
                         output_val, _ = model(val_views, val_edge_nodes, M, False)
@@ -128,7 +141,7 @@ def train(args, num_feature, lr, lam, tau):
             early_stopping.load_checkpoint(model, metric_name)
             model.eval()
             if args.multi_scale:
-                output_test, _, _ = model(test_views, test_edge_nodes, M, test_stats, False)
+                output_test, _, _ = model(test_views, test_edge_nodes, test_edge_times, M, test_stats, False)
             else:
                 output_test, _ = model(test_views, test_edge_nodes, M, False)
 
