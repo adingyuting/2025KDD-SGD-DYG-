@@ -1,3 +1,5 @@
+import torch
+import torch.nn.functional as F
 import torch.optim
 
 from loss import Loss
@@ -6,6 +8,62 @@ from utils import util, DataLoader
 from utils.EarlyStopping import EarlyStopping
 from utils.load_configs import get_link_prediction_args
 from utils.multiscale import build_multiscale_windows, compute_observability_stats
+
+
+def build_confounder_features(edge_times, time_slices, device):
+    edges_per_t = torch.bincount(edge_times, minlength=time_slices).to(torch.float)
+    max_edges = torch.clamp(edges_per_t.max(), min=1.0)
+    time_norm = edge_times.to(torch.float) / max(time_slices - 1, 1)
+    edges_norm = edges_per_t[edge_times] / max_edges
+    return torch.stack((time_norm, edges_norm), dim=1).to(device)
+
+
+def perturb_confounders(confound_features, bucket_ids):
+    permuted = confound_features.clone()
+    unique_ids = bucket_ids.unique()
+    for bucket_id in unique_ids:
+        idx = (bucket_ids == bucket_id).nonzero(as_tuple=True)[0]
+        if idx.numel() <= 1:
+            continue
+        shuffled = idx[torch.randperm(idx.numel(), device=confound_features.device)]
+        permuted[idx] = permuted[shuffled]
+    return permuted
+
+
+def compute_confounder_loss(
+    model,
+    views,
+    edge_nodes,
+    edge_times,
+    M,
+    stats,
+    confound_features,
+    alpha,
+    gamma,
+    sample_rate,
+):
+    if gamma <= 0:
+        return 0.0
+    if confound_features is None:
+        return 0.0
+    if sample_rate <= 0:
+        return 0.0
+
+    num_edges = confound_features.size(0)
+    sample_size = max(1, int(num_edges * sample_rate))
+    sample_idx = torch.randperm(num_edges, device=confound_features.device)[:sample_size]
+
+    edge_nodes_sample = (edge_nodes[0][sample_idx], edge_nodes[1][sample_idx])
+    edge_times_sample = edge_times[sample_idx]
+    stats_sample = stats[sample_idx]
+    confound_sample = confound_features[sample_idx]
+    alpha_sample = alpha[sample_idx]
+
+    confound_perturbed = perturb_confounders(confound_sample, edge_times_sample)
+    _, _, alpha_perturbed = model(
+        views, edge_nodes_sample, edge_times_sample, M, stats_sample, confound_perturbed, False
+    )
+    return gamma * F.l1_loss(alpha_sample, alpha_perturbed)
 
 
 def train(args, num_feature, lr, lam, tau):
@@ -43,8 +101,12 @@ def train(args, num_feature, lr, lam, tau):
                               tensor_con=args.tensor_con)
 
         if args.multi_scale:
+            confounder_features = 2 if args.enable_deconfound else 0
             model = MultiScaleSGDDyG(base_encoder, selector_hidden=args.selector_hidden_dim, time_slices=T, num_scales=3,
-                                     prior_beta=args.prior_beta)
+                                     prior_beta=args.prior_beta, confounder_features=confounder_features,
+                                     confounder_hidden=args.confounder_hidden_dim,
+                                     deconfound_eta=args.deconfound_eta,
+                                     deconfound_alpha_coeff=args.deconfound_alpha_coeff)
             train_views = build_multiscale_windows(train_adj, args.bandwidth, args.decay_lambda, args.persistence_threshold)
             val_views = build_multiscale_windows(val_adj, args.bandwidth, args.decay_lambda, args.persistence_threshold)
             test_views = build_multiscale_windows(test_adj, args.bandwidth, args.decay_lambda, args.persistence_threshold)
@@ -55,11 +117,15 @@ def train(args, num_feature, lr, lam, tau):
             train_edge_times = edges_train[0]
             val_edge_times = edges_val[0]
             test_edge_times = edges_test[0]
+            train_confound = build_confounder_features(train_edge_times, T, device)
+            val_confound = build_confounder_features(val_edge_times, T, device)
+            test_confound = build_confounder_features(test_edge_times, T, device)
         else:
             model = base_encoder
             train_views, val_views, test_views = train_adj, val_adj, test_adj
             train_stats = val_stats = test_stats = None
             train_edge_times = val_edge_times = test_edge_times = None
+            train_confound = val_confound = test_confound = None
 
         model = model.to(device=device)
 
@@ -76,9 +142,9 @@ def train(args, num_feature, lr, lam, tau):
             if enable_cl:
                 if args.multi_scale:
                     output_train, h1, alpha_train = model(
-                        train_views, train_edge_nodes, train_edge_times, M, train_stats, False
+                        train_views, train_edge_nodes, train_edge_times, M, train_stats, train_confound, False
                     )
-                    _, h2, _ = model(train_views, train_edge_nodes, train_edge_times, M, train_stats, True)
+                    _, h2, _ = model(train_views, train_edge_nodes, train_edge_times, M, train_stats, train_confound, True)
                     loss_train = criterion(output_train, target_train, h1, h2, alpha_train)
                 else:
                     output_train, h1 = model(train_views, train_edge_nodes, M, False)
@@ -87,13 +153,27 @@ def train(args, num_feature, lr, lam, tau):
             else:
                 if args.multi_scale:
                     output_train, h1, alpha_train = model(
-                        train_views, train_edge_nodes, train_edge_times, M, train_stats, False
+                        train_views, train_edge_nodes, train_edge_times, M, train_stats, train_confound, False
                     )
                     loss_train = criterion(output_train, target_train, h1, alpha=alpha_train)
                 else:
                     output_train, _ = model(train_views, train_edge_nodes, M, False)
                     loss_train = criterion(output_train, target_train)
             train_metrics = util.compute_metrics(output_train, target_train, edges_train)
+
+            if args.multi_scale and args.enable_deconfound:
+                loss_train = loss_train + compute_confounder_loss(
+                    model,
+                    train_views,
+                    train_edge_nodes,
+                    train_edge_times,
+                    M,
+                    train_stats,
+                    train_confound,
+                    alpha_train,
+                    args.deconfound_gamma,
+                    args.deconfound_sample_rate,
+                )
 
             loss_train.backward()
             optimizer.step()
@@ -104,9 +184,9 @@ def train(args, num_feature, lr, lam, tau):
                 if enable_cl:
                     if args.multi_scale:
                         output_val, h1, alpha_val = model(
-                            val_views, val_edge_nodes, val_edge_times, M, val_stats, False
+                            val_views, val_edge_nodes, val_edge_times, M, val_stats, val_confound, False
                         )
-                        _, h2, _ = model(val_views, val_edge_nodes, val_edge_times, M, val_stats, True)
+                        _, h2, _ = model(val_views, val_edge_nodes, val_edge_times, M, val_stats, val_confound, True)
                         loss_val = criterion(output_val[-K_val:], target_val[-K_val:], h1, h2, alpha_val[-K_val:])
                     else:
                         output_val, h1 = model(val_views, val_edge_nodes, M, False)
@@ -115,7 +195,7 @@ def train(args, num_feature, lr, lam, tau):
                 else:
                     if args.multi_scale:
                         output_val, h1, alpha_val = model(
-                            val_views, val_edge_nodes, val_edge_times, M, val_stats, False
+                            val_views, val_edge_nodes, val_edge_times, M, val_stats, val_confound, False
                         )
                         loss_val = criterion(output_val[-K_val:], target_val[-K_val:], h1, alpha=alpha_val[-K_val:])
                     else:
@@ -141,7 +221,7 @@ def train(args, num_feature, lr, lam, tau):
             early_stopping.load_checkpoint(model, metric_name)
             model.eval()
             if args.multi_scale:
-                output_test, _, _ = model(test_views, test_edge_nodes, test_edge_times, M, test_stats, False)
+                output_test, _, _ = model(test_views, test_edge_nodes, test_edge_times, M, test_stats, test_confound, False)
             else:
                 output_test, _ = model(test_views, test_edge_nodes, M, False)
 

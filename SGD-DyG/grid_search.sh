@@ -28,6 +28,12 @@ PERSIST_THRESHOLDS=(2)
 SELECTOR_HIDDEN_LIST=(64)
 SHARPNESS_LIST=(1e-3)
 PRIOR_BETA_LIST=(1.0)
+DECONFOUND_LIST=(False)
+DECONFOUND_ETA_LIST=(0.1)
+DECONFOUND_ALPHA_LIST=(0.1)
+DECONFOUND_GAMMA_LIST=(1e-4)
+DECONFOUND_SAMPLE_LIST=(0.2)
+CONFOUNDER_HIDDEN_LIST=(64)
 
 for NUM_FEATURE in "${NUM_FEATURES[@]}"; do
   for LAYER in "${LAYERS[@]}"; do
@@ -49,30 +55,48 @@ for NUM_FEATURE in "${NUM_FEATURES[@]}"; do
                                   for SELECTOR_HIDDEN in "${SELECTOR_HIDDEN_LIST[@]}"; do
                                     for SHARPNESS in "${SHARPNESS_LIST[@]}"; do
                                       for PRIOR_BETA in "${PRIOR_BETA_LIST[@]}"; do
-                                      python SGD-DyG/train.py \
-                                        --dataset_name "$DATASET" \
-                                        --num_runs "$RUNS" \
-                                        --epochs "$EPOCHS" \
-                                        --num_feature "$NUM_FEATURE" \
-                                        --layer "$LAYER" \
-                                        --hidden_feature "$HIDDEN_FEATURE" \
-                                        --lr "$LR" \
-                                        --weight_decay "$WEIGHT_DECAY" \
-                                        --lam "$LAM" \
-                                        --tau "$TAU" \
-                                        --bandwidth "$BANDWIDTH" \
-                                        --m_choice "$M_CHOICE" \
-                                        --fft "$FFT" \
-                                        --tensor_con "$TENSOR_CON" \
-                                        --enable_cl "$ENABLE_CL" \
-                                        --tgc_dropout "$TGC_DROPOUT" \
-                                        --fft_dropout "$FFT_DROPOUT" \
-                                        --multi_scale "$MULTI_SCALE" \
-                                        --decay_lambda "$DECAY_LAMBDA" \
-                                        --persistence_threshold "$PERSIST_THRESHOLD" \
-                                        --selector_hidden_dim "$SELECTOR_HIDDEN" \
-                                        --sharpness_coeff "$SHARPNESS" \
-                                        --prior_beta "$PRIOR_BETA"
+                                      for DECONFOUND in "${DECONFOUND_LIST[@]}"; do
+                                        for DECONFOUND_ETA in "${DECONFOUND_ETA_LIST[@]}"; do
+                                          for DECONFOUND_ALPHA in "${DECONFOUND_ALPHA_LIST[@]}"; do
+                                            for DECONFOUND_GAMMA in "${DECONFOUND_GAMMA_LIST[@]}"; do
+                                              for DECONFOUND_SAMPLE in "${DECONFOUND_SAMPLE_LIST[@]}"; do
+                                                for CONFOUNDER_HIDDEN in "${CONFOUNDER_HIDDEN_LIST[@]}"; do
+                                                  python SGD-DyG/train.py \
+                                                    --dataset_name "$DATASET" \
+                                                    --num_runs "$RUNS" \
+                                                    --epochs "$EPOCHS" \
+                                                    --num_feature "$NUM_FEATURE" \
+                                                    --layer "$LAYER" \
+                                                    --hidden_feature "$HIDDEN_FEATURE" \
+                                                    --lr "$LR" \
+                                                    --weight_decay "$WEIGHT_DECAY" \
+                                                    --lam "$LAM" \
+                                                    --tau "$TAU" \
+                                                    --bandwidth "$BANDWIDTH" \
+                                                    --m_choice "$M_CHOICE" \
+                                                    --fft "$FFT" \
+                                                    --tensor_con "$TENSOR_CON" \
+                                                    --enable_cl "$ENABLE_CL" \
+                                                    --tgc_dropout "$TGC_DROPOUT" \
+                                                    --fft_dropout "$FFT_DROPOUT" \
+                                                    --multi_scale "$MULTI_SCALE" \
+                                                    --decay_lambda "$DECAY_LAMBDA" \
+                                                    --persistence_threshold "$PERSIST_THRESHOLD" \
+                                                    --selector_hidden_dim "$SELECTOR_HIDDEN" \
+                                                    --sharpness_coeff "$SHARPNESS" \
+                                                    --prior_beta "$PRIOR_BETA" \
+                                                    --enable_deconfound "$DECONFOUND" \
+                                                    --deconfound_eta "$DECONFOUND_ETA" \
+                                                    --deconfound_alpha_coeff "$DECONFOUND_ALPHA" \
+                                                    --deconfound_gamma "$DECONFOUND_GAMMA" \
+                                                    --deconfound_sample_rate "$DECONFOUND_SAMPLE" \
+                                                    --confounder_hidden_dim "$CONFOUNDER_HIDDEN"
+                                                done
+                                              done
+                                            done
+                                          done
+                                        done
+                                      done
                                       done
                                     done
                                   done

@@ -61,6 +61,18 @@ def get_link_prediction_args():
                         help='sharpness regularization weight for selector logits')
     parser.add_argument("--prior_beta", type=float, default=1.0,
                         help='strength of timeslot prior in scale selector')
+    parser.add_argument("--enable_deconfound", type=bool, default=False,
+                        help='enable deconfounded scale attribution')
+    parser.add_argument("--deconfound_eta", type=float, default=0.1,
+                        help='residualization coefficient for confounder head')
+    parser.add_argument("--deconfound_alpha_coeff", type=float, default=0.1,
+                        help='logit adjustment weight for deconfounded gating')
+    parser.add_argument("--confounder_hidden_dim", type=int, default=64,
+                        help='hidden dimension for confounder head')
+    parser.add_argument("--deconfound_gamma", type=float, default=1e-4,
+                        help='weight for confounder consistency loss')
+    parser.add_argument("--deconfound_sample_rate", type=float, default=0.2,
+                        help='fraction of samples to use for confounder perturbation loss')
     args = parser.parse_args()
 
     hidden_features = getattr(args, "hidden_features", None)
