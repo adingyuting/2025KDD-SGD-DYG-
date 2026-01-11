@@ -1,3 +1,5 @@
+from typing import Iterable, List, Tuple
+
 import torch
 import torch.nn as nn
 
@@ -67,3 +69,85 @@ class SGDDyG(nn.Module):
 
     def init_weight(self):
         nn.init.xavier_normal_(self.X)
+
+
+class ScaleSelector(nn.Module):
+    def __init__(self, embed_dim: int, hidden_dim: int, num_scales: int = 3):
+        super().__init__()
+        self.selector = nn.Sequential(
+            nn.Linear(4 * embed_dim + 4, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, num_scales)
+        )
+
+    def forward(self, embeddings: torch.Tensor, edges_nodes: Tuple[torch.Tensor, torch.Tensor],
+                observability_stats: torch.Tensor) -> torch.Tensor:
+        edge_src_nodes, edge_trg_nodes = edges_nodes
+        flattened_embeddings = embeddings.reshape(-1, embeddings.shape[-1])
+        src_nodes_features = flattened_embeddings[edge_src_nodes]
+        trg_nodes_features = flattened_embeddings[edge_trg_nodes]
+
+        pair_embedding = torch.cat(
+            (
+                src_nodes_features,
+                trg_nodes_features,
+                src_nodes_features * trg_nodes_features,
+                torch.abs(src_nodes_features - trg_nodes_features),
+            ),
+            dim=1
+        )
+        context = torch.cat((pair_embedding, observability_stats), dim=1)
+        return self.selector(context)
+
+
+class ConfounderHead(nn.Module):
+    def __init__(self, in_features: int, out_features: int, hidden_dim: int = 64):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(in_features, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, out_features)
+        )
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.mlp(inputs)
+
+
+class MultiScaleSGDDyG(nn.Module):
+    def __init__(self, encoder: SGDDyG, selector_hidden: int, time_slices: int, num_scales: int = 3,
+                 prior_beta: float = 1.0, confounder_features: int = 0, confounder_hidden: int = 64,
+                 deconfound_eta: float = 0.1, deconfound_alpha_coeff: float = 0.1):
+        super().__init__()
+        self.encoder = encoder
+        self.num_scales = num_scales
+        self.prior_beta = prior_beta
+        self.deconfound_eta = deconfound_eta
+        self.deconfound_alpha_coeff = deconfound_alpha_coeff
+        self.scale_selector = ScaleSelector(embed_dim=self.encoder.F[-1], hidden_dim=selector_hidden,
+                                            num_scales=num_scales)
+        self.timeslot_prior = nn.Parameter(torch.zeros(time_slices, num_scales))
+        self.confounder_head = None
+        if confounder_features > 0:
+            self.confounder_head = ConfounderHead(confounder_features, num_scales, confounder_hidden)
+
+    def forward(self, multi_scale_adj: Iterable[List[torch.Tensor]], edges_nodes, edge_times, M, observability_stats,
+                confound_features=None, cl=True):
+        scale_outputs = []
+        short_embeddings = None
+        for adj in multi_scale_adj:
+            output, embeddings = self.encoder(adj, edges_nodes, M, cl)
+            scale_outputs.append(output)
+            if short_embeddings is None:
+                short_embeddings = embeddings
+        scale_outputs = torch.stack(scale_outputs, dim=1)
+
+        logits = self.scale_selector(short_embeddings, edges_nodes, observability_stats)
+        if self.confounder_head is not None and confound_features is not None:
+            confound_bias = self.confounder_head(confound_features)
+            logits = logits + self.deconfound_alpha_coeff * (scale_outputs - self.deconfound_eta * confound_bias).detach()
+        timeslot_prior = torch.softmax(self.timeslot_prior, dim=1)
+        edge_prior = timeslot_prior[edge_times]
+        alpha = torch.softmax(logits + self.prior_beta * torch.log(edge_prior + 1e-8), dim=1)
+        combined_output = torch.sum(alpha * scale_outputs, dim=1)
+
+        return combined_output, short_embeddings, alpha

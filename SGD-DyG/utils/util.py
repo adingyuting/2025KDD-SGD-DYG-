@@ -1,3 +1,4 @@
+import os
 import random
 import shutil
 
@@ -5,7 +6,7 @@ import numpy as np
 import torch
 from sklearn.metrics import average_precision_score, roc_auc_score
 
-from ..constant import *
+from constant import *
 
 
 def get_all_edges_nodes(train_edges, val_edges, test_edges, num_nodes):
@@ -112,7 +113,8 @@ def split_data(labels, TS):
 
 
 def get_results_sava_path(lr, lam, num_feature, m_choice, fft=True, enable_cl=True, tensor_con=True):
-    save_path = f'./results/lr_{lr}_lam_{lam}_num_features_{num_feature}_M_{m_choice}'
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    save_path = os.path.join(base_dir, 'results', f'lr_{lr}_lam_{lam}_num_features_{num_feature}_M_{m_choice}')
     if fft:
         save_path += '_fft'
     if enable_cl:
@@ -137,16 +139,28 @@ def log_metric(state, epoch, metrics, loss):
     return log
 
 
+def stringify_args(args) -> str:
+    args_dict = vars(args)
+    parts = []
+    for key in sorted(args_dict.keys()):
+        parts.append(f"{key}={args_dict[key]}")
+    return ", ".join(parts)
+
+
 def get_save_parameter(lr, lam, num_feature, run, tau, args):
     save_path = get_results_sava_path(lr, lam, num_feature, args.m_choice, args.fft, args.enable_cl, args.tensor_con)
     if not os.path.exists(save_path):
         os.mkdir(save_path)
 
-    layers = len(args.hidden_features)
+    hidden_features = getattr(args, "hidden_features", None)
+    if hidden_features is None:
+        hidden_features = getattr(args, "hidden_feature", [])
+    layers = len(hidden_features) if isinstance(hidden_features, (list, tuple)) else int(getattr(args, "layer", 1))
     save_res_fname = f'{save_path}/{args.model_name}_layers_{layers}_{args.dataset_name}_tau_{tau}_run_{run}'
 
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     args.save_model_name = f'{args.model_name}_seed_{args.seed + run}'
-    save_model_folder = f"./saved_models/{args.model_name}/{args.dataset_name}/{args.save_model_name}/"
+    save_model_folder = os.path.join(base_dir, "saved_models", args.model_name, args.dataset_name, args.save_model_name)
     shutil.rmtree(save_model_folder, ignore_errors=True)
     os.makedirs(save_model_folder, exist_ok=True)
 

@@ -5,14 +5,15 @@ from torch import Tensor
 
 
 class Loss(nn.Module):
-    def __init__(self, params=None, lam=0, enable_cl=True, tau: float = 0.1):
+    def __init__(self, params=None, lam=0, enable_cl=True, tau: float = 0.1, sharpness_coeff: float = 0.0):
         super().__init__()
         self.params = params
         self.lam = lam
         self.enable_cl = enable_cl
         self.tau = tau
+        self.sharpness_coeff = sharpness_coeff
 
-    def forward(self, input: Tensor, target: Tensor, h1=None, h2=None) -> Tensor:
+    def forward(self, input: Tensor, target: Tensor, h1=None, h2=None, alpha: Tensor = None) -> Tensor:
         loss = nn.BCELoss()
         final_loss = loss(input, target)
 
@@ -25,6 +26,9 @@ class Loss(nn.Module):
         if self.params is not None:
             l2_norm = torch.norm(self.params, p=2)
             final_loss = final_loss + self.lam * l2_norm
+
+        if alpha is not None and self.sharpness_coeff > 0:
+            final_loss = final_loss + self.sharpness_coeff * self.selector_sharpness(alpha)
 
         return final_loss
 
@@ -49,3 +53,8 @@ class Loss(nn.Module):
             losses.append(loss)
 
         return torch.stack(losses, dim=0)
+
+    @staticmethod
+    def selector_sharpness(alpha: torch.Tensor):
+        entropy = -alpha * torch.log(alpha + 1e-8)
+        return torch.mean(torch.sum(entropy, dim=1))
